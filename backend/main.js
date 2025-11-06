@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const challenges = require('./challenges.json');
+//const challenges = require('./challenges.json');
 import { withContext, httpLogger } from './Middlewares/logging.js';
 import { corsMiddleware } from './Middlewares/cors.js';
 import dotenv from 'dotenv';

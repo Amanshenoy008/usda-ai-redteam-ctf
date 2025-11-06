@@ -22,7 +22,7 @@ export const error = (err,req,res,next)=>{
     }
     
     console.log(err)
-    return res.status(500).json({msg:'Server Crashed !!!!!!'})
+    return res.status(500).json({msg:err.message})
     
 }
 
