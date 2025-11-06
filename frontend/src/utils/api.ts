@@ -7,7 +7,8 @@ const getApiBaseUrl = (): string => {
   try {
     // Production: Set VITE_API_BASE_URL in deployment platform (Netlify/Vercel)
     // Development: Set in .env file or use default backend port
-    return import.meta.env?.VITE_API_BASE_URL || 'http://localhost:5100';
+    const env = (import.meta as any).env;
+    return env?.VITE_API_BASE_URL || 'http://localhost:5100';
   } catch (error) {
     return 'http://localhost:5100';
   }
@@ -270,6 +271,124 @@ export async function fetchUserProgress(
   return apiFetch<UserProgressData>(`/progress/${userId}`, {
     method: 'GET',
   });
+}
+
+// ============================================
+// Challenge API
+// ============================================
+
+export interface ChallengeRequest {
+  userId: string;
+  level: number;
+  message?: string;
+  submittedFlag?: string;
+}
+
+export interface ChallengeMetadata {
+  status: 'ready';
+  sessionKey: string;
+  challenge: {
+    slug: string;
+    title: string;
+  };
+  level: {
+    index: number;
+    title: string;
+    difficulty: string;
+    description: string;
+  };
+}
+
+export interface ChallengeChatResponse {
+  sessionKey: string;
+  challengeSlug: string;
+  level: number;
+  reply: string;
+}
+
+export interface ChallengeFlagResponse {
+  status: 'passed' | 'incorrect';
+  sessionKey: string;
+  challengeSlug?: string;
+  level?: number;
+  xpAwarded?: number;
+  message?: string;
+}
+
+export type ChallengeResponse = ChallengeMetadata | ChallengeChatResponse | ChallengeFlagResponse;
+
+/**
+ * Map vulnerability ID to challenge endpoint slug
+ */
+function getChallengeEndpoint(vulnerabilityId: number): string {
+  const mapping: Record<number, string> = {
+    1: 'challenge1', // prompt-injection
+    2: 'challenge4', // improper-output-handling
+    3: 'challenge3', // sensitive-information-disclosure (or could be 6)
+    4: 'challenge2', // misinformation (approximate mapping)
+  };
+  return mapping[vulnerabilityId] || 'challenge1';
+}
+
+/**
+ * Get challenge metadata or initialize challenge session
+ */
+export async function getChallengeMetadata(
+  vulnerabilityId: number,
+  level: number,
+  userId: string
+): Promise<ChallengeMetadata> {
+  const endpoint = getChallengeEndpoint(vulnerabilityId);
+  const response = await apiFetch<ChallengeMetadata>(`/api/${endpoint}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      userId,
+      level,
+    }),
+  });
+  return response;
+}
+
+/**
+ * Send a chat message to the challenge AI
+ */
+export async function sendChallengeMessage(
+  vulnerabilityId: number,
+  level: number,
+  userId: string,
+  message: string
+): Promise<ChallengeChatResponse> {
+  const endpoint = getChallengeEndpoint(vulnerabilityId);
+  const response = await apiFetch<ChallengeChatResponse>(`/api/${endpoint}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      userId,
+      level,
+      message,
+    }),
+  });
+  return response;
+}
+
+/**
+ * Submit a flag for a challenge
+ */
+export async function submitChallengeFlag(
+  vulnerabilityId: number,
+  level: number,
+  userId: string,
+  flag: string
+): Promise<ChallengeFlagResponse> {
+  const endpoint = getChallengeEndpoint(vulnerabilityId);
+  const response = await apiFetch<ChallengeFlagResponse>(`/api/${endpoint}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      userId,
+      level,
+      submittedFlag: flag,
+    }),
+  });
+  return response;
 }
 
 // ============================================
