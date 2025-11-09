@@ -7,7 +7,8 @@ import { frontendSignup, frontendSignin, getCurrentUser as getFrontendUser, veri
 // Get API base URL (same as in api.ts)
 const getApiBaseUrl = (): string => {
   try {
-    return import.meta.env?.VITE_API_BASE_URL || 'http://localhost:5100';
+    const env = (import.meta as any).env;
+    return env?.VITE_API_BASE_URL || 'http://localhost:5100';
   } catch (error) {
     return 'http://localhost:5100';
   }

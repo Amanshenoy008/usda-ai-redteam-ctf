@@ -1,7 +1,8 @@
 import express from 'express'
-import {main,postapi,metadata} from '../Controllers/main.js'
+import {main,metadata} from '../Controllers/main.js'
 import authRoutes from './authRoutes.js'
 import leaderboardRoutes from './leaderboardRoutes.js'
+import challengesRouter from './challengesRoutes.js'
 
 const router = express.Router()
 
@@ -17,6 +18,10 @@ router.use('/leaderboard', leaderboardRoutes)
 // API routes
 router.post('/metadata',metadata)
 
-router.post('/api',postapi)
+//router.post('/hint')
+
+//router.post('/api',postapi)
+
+router.use('/api',challengesRouter)
 
 export default router

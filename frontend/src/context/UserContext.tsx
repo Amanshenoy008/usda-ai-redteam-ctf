@@ -70,10 +70,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
             const userId = currentUser.id || localStorage.getItem('usda_token') || '';
             
             setUser({
-              uid: userId,
-              id: undefined,
+              uid: String(userId),
+              id: typeof currentUser.id === 'number' ? currentUser.id : undefined,
               email: currentUser.email,
-              displayName: currentUser.displayName || currentUser.email.split('@')[0],
+              displayName: currentUser.displayName || currentUser.email?.split('@')[0] || null,
               photoURL: null,
               emailVerified: true,
               isAnonymous: false,

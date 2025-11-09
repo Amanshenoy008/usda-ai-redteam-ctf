@@ -9,15 +9,13 @@ import { authenticate } from '../Middlewares/auth.js';
 
 const router = express.Router();
 
-/**
- * Public route - anyone can view leaderboard
- */
-router.get('/', getLeaderboard);
+
+router.get('/',authenticate, getLeaderboard);
 
 /**
  * Protected route - only authenticated users can update their score
  */
-router.post('/update', authenticate, updateLeaderboardScore);
+//router.post('/update', authenticate, updateLeaderboardScore);
 
 export default router;
 

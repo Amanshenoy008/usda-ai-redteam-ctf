@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "../components/ui/button";
+import { Card } from "../components/ui/card";
 import { vulnerabilities } from "../lib/vulnerabilities";
 import { initializeUserChallenges, challengeLevels, type ChallengeLevel } from "../lib/challengeProgress";
 import { ChallengeCard } from "../components/play/ChallengeCard";
@@ -15,6 +16,8 @@ import {
   ShieldAlert,
   FileWarning,
   Zap,
+  ChevronLeft,
+  Target,
 } from "lucide-react";
 import { ProgressSummaryBar } from "../components/shared/ProgressSummaryBar";
 import { FilterBar } from "../components/shared/FilterBar";
@@ -40,12 +43,16 @@ const iconMap: Record<number, any> = {
 
 export function PlayPage({ onNavigate }: PlayPageProps) {
   const [userChallenges] = useState(initializeUserChallenges());
+  const [selectedVulnerabilityId, setSelectedVulnerabilityId] = useState<number | null>(null);
   const [activeChallenge, setActiveChallenge] = useState<{
     vulnerabilityId: number;
     level: ChallengeLevel;
   } | null>(null);
   const [activeFilter, setActiveFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
   const [visibleCount, setVisibleCount] = useState(6);
+
+  // Vulnerabilities that are work in progress (disabled)
+  const workInProgressIds = [3, 5, 7, 9, 10]; // LLM03, LLM05, LLM07, LLM09, LLM10
 
   // Calculate challenge completion (10 vulnerabilities × 10 levels each = 100 total)
   const totalPossibleLevels = vulnerabilities.length * 10;
@@ -66,24 +73,55 @@ export function PlayPage({ onNavigate }: PlayPageProps) {
     : 0;
 
   const handlePlayClick = (vulnerabilityId: number) => {
-    // Get the current level for this vulnerability
-    const progress = userChallenges.challenges[vulnerabilityId];
+    // Don't allow clicking on work in progress vulnerabilities
+    if (workInProgressIds.includes(vulnerabilityId)) {
+      return;
+    }
+
+    // Auto-select Level 1 by default
     const levels = challengeLevels[vulnerabilityId] || challengeLevels[1]; // Fallback to LLM01 levels
-    const currentLevel = levels[progress.currentLevel - 1] || levels[0];
+    const level1 = levels[0] || challengeLevels[1][0];
+
+    const levelData: ChallengeLevel = {
+      ...level1,
+      level: 1, // Ensure level number matches what API expects
+    };
+
+    setSelectedVulnerabilityId(vulnerabilityId);
+    setActiveChallenge({
+      vulnerabilityId,
+      level: levelData,
+    });
+  };
+
+  const handleLevelSelect = (levelNumber: number) => {
+    const vulnerabilityId = activeChallenge?.vulnerabilityId || selectedVulnerabilityId;
+    if (!vulnerabilityId) return;
+
+    // Get the level data for the selected level
+    const levels = challengeLevels[vulnerabilityId] || challengeLevels[1]; // Fallback to LLM01 levels
+    const selectedLevel = levels[levelNumber - 1] || levels[0];
+
+    // Create a ChallengeLevel object with the correct level number
+    const levelData: ChallengeLevel = {
+      ...selectedLevel,
+      level: levelNumber, // Ensure level number matches what API expects
+    };
 
     setActiveChallenge({
       vulnerabilityId,
-      level: currentLevel,
+      level: levelData,
     });
+  };
+
+  const handleChallengeExit = () => {
+    setActiveChallenge(null);
+    setSelectedVulnerabilityId(null);
   };
 
   const handleChallengeComplete = (score: number, timeSpent: number) => {
     // Update challenge progress
     // In real implementation, this would update state and sync to backend
-    setActiveChallenge(null);
-  };
-
-  const handleChallengeExit = () => {
     setActiveChallenge(null);
   };
 
@@ -106,14 +144,20 @@ export function PlayPage({ onNavigate }: PlayPageProps) {
     setVisibleCount(6); // Reset to initial count when filter changes
   };
 
-  if (activeChallenge) {
-    const vulnerability = vulnerabilities.find((v) => v.id === activeChallenge.vulnerabilityId);
+  // Show challenge environment when a vulnerability is selected (with or without level)
+  if (selectedVulnerabilityId || activeChallenge) {
+    const vulnerabilityId = activeChallenge?.vulnerabilityId || selectedVulnerabilityId;
+    const vulnerability = vulnerabilities.find((v) => v.id === vulnerabilityId);
+    
     return (
       <ChallengeEnvironment
-        challenge={activeChallenge.level}
+        challenge={activeChallenge?.level}
         vulnerabilityTitle={vulnerability?.title || "Unknown"}
+        vulnerabilityId={vulnerabilityId || 0}
         onComplete={handleChallengeComplete}
         onExit={handleChallengeExit}
+        onLevelSelect={handleLevelSelect}
+        currentLevel={activeChallenge?.level?.level || 1}
       />
     );
   }
@@ -167,19 +211,24 @@ export function PlayPage({ onNavigate }: PlayPageProps) {
           const challengeProgress = userChallenges.challenges[vulnerability.id];
           const isCompleted = challengeProgress.currentLevel > 10; // All 10 levels completed
           const progress = Math.round(((challengeProgress.currentLevel - 1) / 10) * 100);
+          const isWorkInProgress = workInProgressIds.includes(vulnerability.id);
 
           return (
             <VulnerabilityCard
               key={vulnerability.id}
               id={vulnerability.id}
               title={vulnerability.title}
-              description={`Complete ${10 - (challengeProgress.currentLevel - 1)} more challenge levels. Current level: ${challengeProgress.currentLevel}`}
+              description={isWorkInProgress 
+                ? "This challenge is currently under development. Check back soon!"
+                : vulnerability.description
+              }
               severity={vulnerability.severity}
               icon={Icon}
               isCompleted={isCompleted}
               progress={progress}
               onAction={() => handlePlayClick(vulnerability.id)}
               actionLabel={isCompleted ? "Replay" : "Play"}
+              isWorkInProgress={isWorkInProgress}
             />
           );
         })}

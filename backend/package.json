@@ -12,7 +12,8 @@
   "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon ./main.js"
+    "dev": "nodemon ./main.js",
+    "seed:challenges": "node lib/seedChallenges.js"
   },
   "dependencies": {
     "@google/genai": "^1.22.0",
