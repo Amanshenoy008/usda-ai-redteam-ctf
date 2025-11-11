@@ -5,6 +5,7 @@ dotenv.config();
 import { PrismaClient } from '../generated/prisma/index.js';
 const prisma = new PrismaClient();
 
+// Lazy import (ESM)
 const { GoogleGenAI } = await import('@google/genai');
 
 // ---------------- In-memory sessions (per user/challenge/level) ----------------
@@ -37,8 +38,7 @@ const fillFlag = (s, flag) => String(s ?? '').replace(/\$\{flag\}/g, flag ?? '')
 function toContents(history, userMessage, systemInstruction) {
   const contents = [];
 
-  // Belt-and-suspenders: push system prompt as first message too,
-  // in case the API's systemInstruction path is ignored by a client version.
+  // Belt-and-suspenders: also inject system prompt as a first "user" turn
   if (systemInstruction?.trim()) {
     contents.push({ role: 'user', parts: [{ text: `[SYSTEM INSTRUCTION]\n${systemInstruction}` }] });
   }
@@ -62,12 +62,14 @@ async function callGemini({ systemInstruction, contents }) {
   if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
 
   const ai = new GoogleGenAI({ apiKey });
-
-  // We pass BOTH: systemInstruction (native) AND we also inserted it into contents.
+    console.log(systemInstruction,contents);
+  // Pass systemInstruction natively AND we already injected it into contents.
   const resp = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    systemInstruction: systemInstruction ? { role: 'system', parts: [{ text: systemInstruction }] } : undefined,
-    contents
+    model: "gemini-2.5-flash",
+    contents: contents,
+    config: {
+      systemInstruction: systemInstruction,
+    },
   });
 
   return (typeof resp?.text === 'function') ? await resp.text() : (resp?.text ?? '');
@@ -127,7 +129,7 @@ async function awardXpAndMark(userId, level) {
 // ---------------- generic handler ----------------
 async function genericHandler(req, res, next, challengeSlug) {
   try {
-    // Body shape: { userId: "uid", level: 1, message?: "txt", submittedFlag?: "FLAG" }
+    // Body: { userId: "uid", level: 1, message?: "txt", submittedFlag?: "FLAG" }
     const userId = String(req.body?.userId || '').trim();
     const levelIndex = Number(req.body?.level);
     const message = req.body?.message ?? '';
@@ -139,16 +141,19 @@ async function genericHandler(req, res, next, challengeSlug) {
 
     const { challenge, level } = await getChallengeAndLevel(challengeSlug, levelIndex);
 
-    // Pull system prompt from DB (graderConfig)
-    const cfg = level.graderConfig ?? {};
-    const systemInstruction = fillFlag(cfg.context_prompt, cfg.flag);
-
+    // Pull from DB
+    const cfg = level.graderConfig ?? {}; // { id, flag, solutions, owasp_category, learning_objective }
+    const flag = String(cfg.flag || '').trim();
+    //console.log(level.systemContext);
+    // NEW: prefer Level.systemContext; fallback to old JSON field if present
+    const rawSystem = level.systemContext  ?? '';
+    const systemInstruction = fillFlag(rawSystem, flag);
+    
     const { key, s } = getSession(userId, challenge.id, level.id);
 
-    // If user submits a flag, check & award XP (no model call needed)
+    // Flag submission path (no model call)
     if (submittedFlag) {
-      const expected = String(cfg.flag || '').trim();
-      if (expected && submittedFlag === expected) {
+      if (flag && submittedFlag === flag) {
         const { xpAwarded } = await awardXpAndMark(userId, level);
         return res.json({
           status: 'passed',
@@ -162,7 +167,7 @@ async function genericHandler(req, res, next, challengeSlug) {
       return res.status(200).json({ status: 'incorrect', sessionKey: key, message: 'Flag is incorrect.' });
     }
 
-    // If no message, return metadata for client to display hints/intro
+    // If no message, return metadata/intro
     if (!message) {
       touch(s);
       return res.json({
@@ -182,7 +187,7 @@ async function genericHandler(req, res, next, challengeSlug) {
     const contents = toContents(s.history, message, systemInstruction);
     const reply = await callGemini({ systemInstruction, contents });
 
-    // Append/trim history
+    // Maintain history
     s.history.push({ role: 'USER', content: message });
     s.history.push({ role: 'MODEL', content: reply });
     if (s.history.length > MAX_TURNS * 2) s.history.splice(0, s.history.length - MAX_TURNS * 2);
