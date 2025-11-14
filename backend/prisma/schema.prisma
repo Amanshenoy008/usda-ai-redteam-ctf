@@ -76,6 +76,7 @@ model Level {
   xpReward     Int       @default(0)
 
   graderConfig Json?
+  systemContext  String?          
 
   // NEW: fixed three hint columns
   hint1        String?

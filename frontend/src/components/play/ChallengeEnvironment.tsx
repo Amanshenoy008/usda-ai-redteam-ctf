@@ -531,7 +531,7 @@ export function ChallengeEnvironment({
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <Label htmlFor="defense-mode" className="flex items-center gap-2 cursor-pointer">
+                  <Label htmlFor="defense-mode" className="flex items-center gap-2 cursor-pointer ">
                     <Shield
                       className={`h-4 w-4 ${defenseMode ? "text-success" : "text-muted-foreground"}`}
                     />

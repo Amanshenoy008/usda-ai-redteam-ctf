@@ -1,3 +1,4 @@
+// prisma/seed.js (ESM)
 import { PrismaClient } from '../generated/prisma/index.js';
 import fs from 'fs';
 import path from 'path';
@@ -7,10 +8,10 @@ const prisma = new PrismaClient();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Set to true only if your Level model actually has columns: hint1, hint2, hint3
+// If your Level model has hint1/hint2/hint3 columns and you want to populate them, set true
 const USE_HINT_COLUMNS = false;
 
-// ---------- helpers ----------
+/* ------------------------------ helpers ------------------------------ */
 function kebab(s) {
   return String(s).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
@@ -42,12 +43,16 @@ function toIndexedLevels(levelsObj) {
     .sort((a, b) => a.index - b.index);
 }
 
-// ---------- load JSON ----------
+/* ------------------------------ load JSON ------------------------------ */
 const dataPath = path.resolve(__dirname, '../data/challenges.json');
+if (!fs.existsSync(dataPath)) {
+  console.error(`❌ Seed JSON not found at ${dataPath}`);
+  process.exit(1);
+}
 const raw = fs.readFileSync(dataPath, 'utf-8');
 const json = JSON.parse(raw);
 
-// Auto-fix: if a stray root "level3" exists, fold it into improper_output_handling
+// Optional auto-fix if someone put a root level accidentally
 if (json?.challenges?.level3) {
   json.challenges.improper_output_handling ??= {};
   if (!json.challenges.improper_output_handling.level3) {
@@ -56,6 +61,7 @@ if (json?.challenges?.level3) {
   delete json.challenges.level3;
 }
 
+/* ------------------------------ upserts ------------------------------ */
 async function upsertChallenge({ slug, title }) {
   const existing = await prisma.challenge.findFirst({ where: { slug } });
   if (!existing) {
@@ -64,7 +70,7 @@ async function upsertChallenge({ slug, title }) {
         slug,
         title,
         isActive: true,
-        graderConfig: null, // challenge-wide config unused
+        graderConfig: null, // challenge-wide config unused for now
       },
     });
   }
@@ -82,9 +88,20 @@ async function upsertLevel({ challengeId, index, v }) {
   const levelDesc = v.description || '';
   const levelDiff = mapDifficulty(v.difficulty);
   const flag = v.flag || '';
-  const ctx = v.context_prompt || '';
+  // Prefer any of these keys for system context
+  const ctx =
+    v.system_context ??
+    v.systemContext ??
+    v.context_prompt ??
+    '';
+
   const solutions = Array.isArray(v.solutions) ? v.solutions : [];
   const hints = Array.isArray(v.hints) ? v.hints : [];
+
+  // Extra metadata we keep in JSON column for the level
+  const owasp_category = v.owasp_category || null;
+  const learning_objective = v.learning_objective || null;
+  const externalId = v.id || null;
 
   const existing = await prisma.level.findFirst({
     where: { challengeId, index },
@@ -98,10 +115,18 @@ async function upsertLevel({ challengeId, index, v }) {
     difficulty: levelDiff,
     isActive: true,
     xpReward: xpFor(levelDiff),
-    graderConfig: { flag, context_prompt: ctx, solutions },
+    // Source of truth for system prompt
+    systemContext: ctx,
+    // Keep flags/solutions/metadata in JSON column
+    graderConfig: {
+      id: externalId,
+      flag,
+      solutions,
+      owasp_category,
+      learning_objective,
+    },
   };
 
-  // Optional: map to hint1/2/3 columns if you add them to the schema later
   const hintPatch = USE_HINT_COLUMNS
     ? { hint1: hints[0] ?? null, hint2: hints[1] ?? null, hint3: hints[2] ?? null }
     : {};
@@ -115,28 +140,33 @@ async function upsertLevel({ challengeId, index, v }) {
   });
 }
 
+/* ------------------------------ main ------------------------------ */
 async function main() {
   const families = json?.challenges || {};
   const familyKeys = Object.keys(families);
+  if (!familyKeys.length) {
+    console.warn('⚠️  No challenges found in JSON.');
+    return;
+  }
 
   for (const familyKey of familyKeys) {
     const levelsObj = families[familyKey];
     const levels = toIndexedLevels(levelsObj);
     if (!levels.length) continue;
 
-    const slug = kebab(familyKey);         // e.g. "prompt_injection" -> "prompt-injection"
-    const title = titleize(familyKey);     // e.g. "Prompt Injection"
+    const slug = kebab(familyKey);     // e.g. "prompt_injection" -> "prompt-injection"
+    const title = titleize(familyKey); // e.g. "Prompt Injection"
 
     const challenge = await upsertChallenge({ slug, title });
 
-    // Upsert levels present in JSON
+    // Upsert present levels
     const presentIndexes = new Set();
     for (const { index, v } of levels) {
       await upsertLevel({ challengeId: challenge.id, index, v });
       presentIndexes.add(index);
     }
 
-    // Delete stray levels not in JSON (e.g., old level 5)
+    // Delete levels that are no longer present in JSON
     const existingLevels = await prisma.level.findMany({
       where: { challengeId: challenge.id },
       select: { id: true, index: true },
@@ -144,15 +174,17 @@ async function main() {
     const toDelete = existingLevels.filter(l => !presentIndexes.has(l.index));
     if (toDelete.length) {
       await prisma.level.deleteMany({ where: { id: { in: toDelete.map(l => l.id) } } });
+      console.log(`🧹 Removed ${toDelete.length} stale level(s) from "${slug}"`);
     }
   }
 
   console.log('✅ Seed complete');
 }
 
+/* ------------------------------ run ------------------------------ */
 main()
   .catch((e) => {
-    console.error('Seed failed:', e);
+    console.error('❌ Seed failed:', e);
     process.exit(1);
   })
   .finally(async () => {
